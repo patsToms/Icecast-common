@@ -76,6 +76,7 @@ typedef struct http_parser_tag {
     char *uri;
     avl_tree *vars;
     avl_tree *queryvars;
+    avl_tree *datavars;
 } http_parser_t;
 
 #ifdef _mangle
@@ -88,6 +89,8 @@ typedef struct http_parser_tag {
 # define httpp_getvar _mangle(httpp_getvar)
 # define httpp_set_query_param _mangle(httpp_set_query_param)
 # define httpp_get_query_param _mangle(httpp_get_query_param)
+# define httpp_set_data_param _mangle(httpp_set_data_param)
+# define httpp_get_data_param _mangle(httpp_get_data_param)
 # define httpp_destroy _mangle(httpp_destroy)
 # define httpp_clear _mangle(httpp_clear)
 #endif
@@ -101,7 +104,9 @@ void httpp_setvar(http_parser_t *parser, const char *name, const char *value);
 void httpp_deletevar(http_parser_t *parser, const char *name);
 const char *httpp_getvar(http_parser_t *parser, const char *name);
 void httpp_set_query_param(http_parser_t *parser, const char *name, const char *value);
+void httpp_set_data_param(http_parser_t *parser, const char *name, const char *value);
 const char *httpp_get_query_param(http_parser_t *parser, const char *name);
+const char *httpp_get_data_param(http_parser_t *parser, const char *name);
 void httpp_destroy(http_parser_t *parser);
 void httpp_clear(http_parser_t *parser);
 

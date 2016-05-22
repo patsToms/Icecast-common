@@ -65,6 +65,7 @@ void httpp_initialize(http_parser_t *parser, http_varlist_t *defaults)
     parser->uri = NULL;
     parser->vars = avl_tree_new(_compare_vars, NULL);
     parser->queryvars = avl_tree_new(_compare_vars, NULL);
+    parser->datavars = avl_tree_new(_compare_vars, NULL);
 
     /* now insert the default variables */
     list = defaults;
@@ -299,6 +300,41 @@ static void parse_query(http_parser_t *parser, char *query)
     }
 }
 
+/** TODO: The same as parse_query() */
+static void parse_data(http_parser_t *parser, char *payload_body)
+{
+    int len;
+    int i=0;
+    char *key = payload_body;
+    char *val=NULL;
+
+    if(!payload_body || !*payload_body)
+        return;
+
+    len = strlen(payload_body);
+
+    while(i<len) {
+
+        switch(payload_body[i]) {
+        case '&':
+            payload_body[i] = 0;
+            if(val && key)
+                httpp_set_data_param(parser, key, val);
+            key = payload_body+i+1;
+            break;
+        case '=':
+            payload_body[i] = 0;
+            val = payload_body+i+1;
+            break;
+        }
+        i++;
+    }
+
+    if(val && key) {
+        httpp_set_data_param(parser, key, val);
+    }
+}
+
 int httpp_parse(http_parser_t *parser, const char *http_data, unsigned long len)
 {
     char *data, *tmp;
@@ -309,6 +345,7 @@ int httpp_parse(http_parser_t *parser, const char *http_data, unsigned long len)
     char *uri = NULL;
     char *version = NULL;
     int whitespace, where, slen;
+    char *payload_body;
 
     if (http_data == NULL)
         return 0;
@@ -318,6 +355,16 @@ int httpp_parse(http_parser_t *parser, const char *http_data, unsigned long len)
     if (data == NULL) return 0;
     memcpy(data, http_data, len);
     data[len] = 0;
+
+    /*
+     * finds payload's body first because data will be splited by split_headers
+     * TODO: maybe this part should check different types too
+     */
+    payload_body = strstr(data, "\r\n\r\n");
+
+    if (payload_body != NULL) {
+        payload_body += 4; /* offsets new lines */
+    }
 
     lines = split_headers(data, len, line);
 
@@ -436,6 +483,25 @@ int httpp_parse(http_parser_t *parser, const char *http_data, unsigned long len)
 
     parse_headers(parser, line, lines);
 
+    /* if there is Content-Length header then we should check payload body */
+    if (parser->req_type == httpp_req_post) {
+
+        size_t content_length;
+        content_length = strtol(httpp_getvar(parser, "content-length"), NULL, 0);
+
+        if (content_length && (payload_body != NULL) ) {
+
+            if (content_length != strlen(payload_body)) {
+                return 0;
+            }
+
+            parse_data(parser, payload_body);
+
+            return 1;
+        }
+
+    }
+
     free(data);
 
     return 1;
@@ -513,6 +579,27 @@ void httpp_set_query_param(http_parser_t *parser, const char *name, const char *
     }
 }
 
+void httpp_set_data_param(http_parser_t *parser, const char *name, const char *value)
+{
+    http_var_t *var;
+
+    if (name == NULL || value == NULL)
+        return;
+
+    var = (http_var_t *)malloc(sizeof(http_var_t));
+    if (var == NULL) return;
+
+    var->name = strdup(name);
+    var->value = url_escape(value);
+
+    if (httpp_get_data_param(parser, name) == NULL) {
+        avl_insert(parser->datavars, (void *)var);
+    } else {
+        avl_delete(parser->datavars, (void *)var, _free_vars);
+        avl_insert(parser->datavars, (void *)var);
+    }
+}
+
 const char *httpp_get_query_param(http_parser_t *parser, const char *name)
 {
     http_var_t var;
@@ -524,6 +611,22 @@ const char *httpp_get_query_param(http_parser_t *parser, const char *name)
     var.value = NULL;
 
     if (avl_get_by_key(parser->queryvars, (void *)&var, fp) == 0)
+        return found->value;
+    else
+        return NULL;
+}
+
+const char *httpp_get_data_param(http_parser_t *parser, const char *name)
+{
+    http_var_t var;
+    http_var_t *found;
+    void *fp;
+
+    fp = &found;
+    var.name = (char *)name;
+    var.value = NULL;
+
+    if (avl_get_by_key(parser->datavars, (void *)&var, fp) == 0)
         return found->value;
     else
         return NULL;
